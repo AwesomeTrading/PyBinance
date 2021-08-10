@@ -1,0 +1,4 @@
+python-dateutil
+numpy
+ccxt
+unicorn-binance-websocket-api
