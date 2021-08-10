@@ -126,12 +126,8 @@ class PyBinanceAPI:
 
 class PyBinanceWS(PyBinanceAPI):
     '''API provider for Binance feed and broker classes.'''
-    def __init__(self, currency='USDT', sandbox=False, retries=10, **kwargs):
-        super().__init__(exchange='binance',
-                         currency=currency,
-                         sandbox=sandbox,
-                         retries=retries,
-                         **kwargs)
+    def __init__(self, sandbox=False, **kwargs):
+        super().__init__(exchange='binance', sandbox=sandbox, **kwargs)
 
         self.subscribers = {}
         self.parsers = {
