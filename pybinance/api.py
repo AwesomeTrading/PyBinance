@@ -14,18 +14,14 @@ from unicorn_binance_websocket_api.unicorn_binance_websocket_api_manager import 
 logger = logging.getLogger('PyBinance')
 
 
-class MetaSingleton():
-    '''Metaclass to make a metaclassed class a singleton'''
-    def __init__(cls, name, bases, dct):
-        super(MetaSingleton, cls).__init__(name, bases, dct)
-        cls._singleton = None
+class Singleton(type):
+    _instances = {}
 
     def __call__(cls, *args, **kwargs):
-        if cls._singleton is None:
-            cls._singleton = (super(MetaSingleton,
-                                    cls).__call__(*args, **kwargs))
-
-        return cls._singleton
+        if cls not in cls._instances:
+            cls._instances[cls] = super(Singleton,
+                                        cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
 
 
 class PyBinanceAPI:
@@ -128,7 +124,7 @@ class PyBinanceAPI:
         return response
 
 
-class PyBinanceWS:
+class PyBinanceWS(PyBinanceAPI):
     '''API provider for Binance feed and broker classes.'''
     def __init__(self, currency='USDT', sandbox=False, retries=10, **kwargs):
         super().__init__(exchange='binance',
@@ -503,5 +499,5 @@ class PyBinanceWS:
         self.ws.stop_manager_with_all_streams()
 
 
-class PyBinance(MetaSingleton, PyBinanceAPI, PyBinanceWS):
+class PyBinance(PyBinanceWS, metaclass=Singleton):
     pass
