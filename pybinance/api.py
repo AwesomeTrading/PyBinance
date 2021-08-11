@@ -7,8 +7,11 @@ import threading
 import queue
 import re
 import json
+from datetime import datetime
+from functools import wraps
 
 import ccxt
+from ccxt.base.errors import NetworkError, ExchangeError
 from unicorn_binance_websocket_api.unicorn_binance_websocket_api_manager import BinanceWebSocketApiManager
 
 logger = logging.getLogger('PyBinance')
@@ -25,11 +28,38 @@ class Singleton(type):
 
 
 class PyBinanceAPI:
-    def __init__(self, exchange, config, sandbox=False):
+    def __init__(
+        self,
+        exchange,
+        currency,
+        config,
+        retries=5,
+        sandbox=False,
+        **kwargs,
+    ):
         self.exchange = getattr(ccxt, exchange)(config)
+        self.currency = currency
+        self.retries = retries
         if sandbox:
             self.exchange.set_sandbox_mode(True)
 
+    def retry(method):
+        @wraps(method)
+        def retry_method(self, *args, **kwargs):
+            for i in range(self.retries):
+                # if self.debug:
+                #     print('{} - {} - Attempt {}'.format(
+                #         datetime.now(), method.__name__, i))
+                time.sleep(self.exchange.rateLimit / 1000)
+                try:
+                    return method(self, *args, **kwargs)
+                except (NetworkError, ExchangeError):
+                    if i == self.retries - 1:
+                        raise
+
+        return retry_method
+
+    @retry
     def fetch_ohlcv(
         self,
         symbol,
@@ -44,24 +74,30 @@ class PyBinanceAPI:
                                          limit=limit,
                                          params=params)
 
+    @retry
     def fetch_trades(self, symbol, since=None, limit=None, params={}):
         return self.exchange.fetch_trades(symbol, since, limit, params)
 
+    @retry
     def get_time(self):
         return self.exchange.fetch_time()
 
+    @retry
     def get_tickers(self, symbols):
         return self.exchange.fetch_tickers(symbols)
 
+    @retry
     def get_markets(self):
         self.exchange.load_markets()
         return self.exchange.markets_by_id
 
     # account api
+    @retry
     def get_my_wallet_balance(self, currency, params=None):
         balance = self.exchange.fetch_balance(params)
         return balance
 
+    @retry
     def get_my_balance(self):
         balance = self.exchange.fetch_balance()
 
@@ -72,21 +108,25 @@ class PyBinanceAPI:
         self._value = value if value else 0
         return cash, value
 
-    def create_my_order(self, symbol, order_type, side, amount, price, params):
+    @retry
+    def create_my_order(self, symbol, type, side, amount, price, params):
         # returns the order
         return self.exchange.create_order(symbol=symbol,
-                                          type=order_type,
+                                          type=type,
                                           side=side,
                                           amount=amount,
                                           price=price,
                                           params=params)
 
+    @retry
     def fetch_my_order(self, oid, symbol):
         return self.exchange.fetch_order(oid, symbol)
 
+    @retry
     def fetch_my_orders(self, symbol=None, since=None, limit=None, params={}):
         return self.exchange.fetch_orders(symbol, since, limit, params)
 
+    @retry
     def fetch_my_open_orders(self,
                              symbol=None,
                              since=None,
@@ -94,32 +134,29 @@ class PyBinanceAPI:
                              params={}):
         return self.exchange.fetch_open_orders(symbol, since, limit, params)
 
+    @retry
     def cancel_my_order(self, order_id, symbol):
         return self.exchange.cancel_order(order_id, symbol)
 
+    @retry
     def cancel_my_orders(self, symbol=None, params={}):
         if 'origClientOrderIdList' in params:
             params['origClientOrderIdList'] = json.dumps(
                 params['origClientOrderIdList'], separators=(",", ":"))
         return self.exchange.cancel_all_orders(symbol, params)
 
+    @retry
     def fetch_my_trades(self, symbol=None, since=None, limit=None, params={}):
         return self.exchange.fetch_my_trades(symbol, since, limit, params)
 
-    def fetch_my_positions(self,
-                           symbols=None,
-                           since=None,
-                           limit=None,
-                           params={}):
-        positions = self.exchange.fetch_positions(symbols, since, limit,
-                                                  params)
-        if symbols is None:
-            return positions
+    @retry
+    def fetch_my_positions(self, symbols=None, params={}):
+        positions = self.exchange.fetch_positions(symbols, params)
 
         response = []
         for position in positions:
             psymbol = self.exchange.safe_symbol(position['symbol'])
-            if psymbol in symbols:
+            if symbols is None or psymbol in symbols:
                 response.append(position)
         return response
 
@@ -148,6 +185,8 @@ class PyBinanceWS(PyBinanceAPI):
 
         if sandbox:
             exchange = f"{exchange}-testnet"
+
+        print(f"Binance exchange: {exchange}")
         self.ws = BinanceWebSocketApiManager(exchange=exchange)
 
         self._loop_stream()
@@ -193,7 +232,8 @@ class PyBinanceWS(PyBinanceAPI):
         for p in a['P']:
             positions.append(
                 dict(
-                    symbol=self.exchange.safe_symbol(p["s"]),  # Symbol
+                    id=self.exchange.safe_symbol(p["s"]),  # Symbol
+                    symbol=p["s"],
                     amount=float(p["pa"]),  # Position Amount
                     price=float(p["ep"]),  # Entry Price
                     accum=float(p["cr"]),  # (Pre-fee) Accumulated Realized
