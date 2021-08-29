@@ -7,7 +7,6 @@ import threading
 import queue
 import re
 import json
-from datetime import datetime
 from functools import wraps
 
 import ccxt
@@ -103,14 +102,10 @@ class PyBinanceAPI:
 
         cash = balance['free'][self.currency]
         value = balance['total'][self.currency]
-        # Fix if None is returned
-        self._cash = cash if cash else 0
-        self._value = value if value else 0
         return cash, value
 
     @retry
     def create_my_order(self, symbol, type, side, amount, price, params):
-        # returns the order
         return self.exchange.create_order(symbol=symbol,
                                           type=type,
                                           side=side,
@@ -135,8 +130,8 @@ class PyBinanceAPI:
         return self.exchange.fetch_open_orders(symbol, since, limit, params)
 
     @retry
-    def cancel_my_order(self, order_id, symbol):
-        return self.exchange.cancel_order(order_id, symbol)
+    def cancel_my_order(self, id, symbol):
+        return self.exchange.cancel_order(id, symbol)
 
     @retry
     def cancel_my_orders(self, symbol=None, params={}):
@@ -232,8 +227,8 @@ class PyBinanceWS(PyBinanceAPI):
         for p in a['P']:
             positions.append(
                 dict(
-                    id=self.exchange.safe_symbol(p["s"]),  # Symbol
-                    symbol=p["s"],
+                    id=p["s"],
+                    symbol=self.exchange.safe_symbol(p["s"]),  # Symbol
                     amount=float(p["pa"]),  # Position Amount
                     price=float(p["ep"]),  # Entry Price
                     accum=float(p["cr"]),  # (Pre-fee) Accumulated Realized
@@ -295,20 +290,20 @@ class PyBinanceWS(PyBinanceAPI):
                     ))
 
     # bar
-    def subscribe_bars(self, markets, interval, q=None, **kwargs):
+    def subscribe_bars(self, markets, timeframe, q=None, **kwargs):
         markets = self._parse_ws_symbols(markets)
-        channel = f"kline_{interval}"
-        listeners = self._bar_listeners(markets, interval)
+        channel = f"kline_{timeframe}"
+        listeners = self._bar_listeners(markets, timeframe)
         return self.subscribe(channel, markets, listeners, q=q, **kwargs)
 
-    def _bar_listeners(self, markets, interval):
+    def _bar_listeners(self, markets, timeframe):
         channels = []
         for m in markets:
-            channels.append(self._bar_listener(m, interval))
+            channels.append(self._bar_listener(m, timeframe))
         return channels
 
-    def _bar_listener(self, market, interval):
-        return f"kline_{market}_{interval}"
+    def _bar_listener(self, market, timeframe):
+        return f"kline_{market}_{timeframe}"
 
     def _parse_bar(self, e):
         if e['e'] != 'kline':
@@ -323,7 +318,7 @@ class PyBinanceWS(PyBinanceAPI):
                 start=b["t"],  # Kline start time
                 end=b["T"],  # Kline close time
                 symbol=self.exchange.safe_symbol(b["s"]),  # Symbol
-                interval=b["i"],  # Interval
+                timeframe=b["i"],  # timeframe
                 first_tradeid=b["f"],  # First trade ID
                 last_tradeid=b["L"],  # Last trade ID
                 open=float(b["o"]),  # Open price
@@ -340,7 +335,7 @@ class PyBinanceWS(PyBinanceAPI):
             ))
         event['listeners'] = [
             "kline",
-            self._bar_listener(event['symbol'], event['bar']['interval'])
+            self._bar_listener(event['symbol'], event['bar']['timeframe'])
         ]
         return event
 
