@@ -11,7 +11,7 @@ from functools import wraps
 
 import ccxt
 from ccxt.base.errors import NetworkError, ExchangeError
-from unicorn_binance_websocket_api.unicorn_binance_websocket_api_manager import BinanceWebSocketApiManager
+from unicorn_binance_websocket_api import BinanceWebSocketApiManager
 
 logger = logging.getLogger('PyBinance')
 
@@ -523,8 +523,8 @@ class PyBinanceWS(PyBinanceAPI):
                         for q in self.subscribers[listener]:
                             q.put(event)
                 except Exception as e:
-                    print(f"raw data: {buffer}")
-                    print(f"exception: {e}")
+                    logger.error("raw data: %s", buffer)
+                    logger.error("exception: %s", e)
 
     def stop(self):
         self.ws.stop_manager_with_all_streams()
