@@ -508,7 +508,7 @@ class PyBinanceWS(PyBinanceAPI):
                             f"buffer format is invalid: {buffer}")
 
                     if name not in self.parsers:
-                        logger.info("event parser not found: %s", buffer)
+                        logger.warn("event parser not found: %s", buffer)
                         continue
 
                     event = self.parsers[name](buffer)
