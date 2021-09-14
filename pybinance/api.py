@@ -439,7 +439,7 @@ class PyBinanceWS(PyBinanceAPI):
                                     output="dict",
                                     api_key=self.exchange.apiKey,
                                     api_secret=self.exchange.secret,
-                                    ping_interval=30,
+                                    ping_interval=10,
                                     ping_timeout=60,
                                     **kwargs)
         # set event listener
