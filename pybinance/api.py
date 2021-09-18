@@ -7,6 +7,7 @@ import threading
 import queue
 import re
 import json
+import math
 from functools import wraps
 
 import ccxt
@@ -67,6 +68,13 @@ class PyBinanceAPI:
         limit=None,
         params={},
     ):
+        # spot api using milliseconds
+        # future api using second timestamp
+        if since is not None:
+            extype = self.exchange.options['defaultType']
+            if extype == 'spot':
+                since = math.floor(since * 1000)
+
         return self.exchange.fetch_ohlcv(symbol,
                                          timeframe=timeframe,
                                          since=since,
