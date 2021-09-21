@@ -601,8 +601,7 @@ class PyBinanceWS(PyBinanceAPI):
 
     # stream data loop
     def _loop_stream(self):
-        t = threading.Thread(target=self._t_loop_stream)
-        t.daemon = True
+        t = threading.Thread(target=self._t_loop_stream, daemon=True)
         t.start()
 
     def _t_loop_stream(self):
