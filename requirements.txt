@@ -1,4 +1,4 @@
 python-dateutil
 numpy
 ccxt
-unicorn-binance-websocket-api
+unicorn-binance-websocket-api==1.33.1

@@ -8,5 +8,5 @@ setup(
     author='Santatic',
     license='Private',
     packages=['pybinance'],
-    install_requires=['ccxt', 'unicorn-binance-websocket-api'],
+    install_requires=['ccxt', 'unicorn-binance-websocket-api==1.33.1'],
 )
