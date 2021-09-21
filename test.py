@@ -22,21 +22,22 @@ def main():
         currency="USDT",
         sandbox=True,
     )
-    # store.subscribe_account()
-    # store.subscribe_bars(['btcusdt'], '5m')
-    # store._t_loop_stream()
-    # balance
-    balance = api.get_my_wallet_balance()
-    print(f"Balance {balance}")
+    api.subscribe_my_account()
+    api.subscribe_bars(['btcusdt'], '5m')
+    api._t_loop_stream()
 
-    # create order
-    order = api.create_my_order(symbol="BNB/USDT",
-                                type="market",
-                                side="SELL",
-                                amount=1,
-                                price=None,
-                                params={})
-    print(f"Order {order}")
+    # # balance
+    # balance = api.get_my_wallet_balance()
+    # print(f"Balance {balance}")
+
+    # # create order
+    # order = api.create_my_order(symbol="BNB/USDT",
+    #                             type="market",
+    #                             side="SELL",
+    #                             amount=1,
+    #                             price=None,
+    #                             params={})
+    # print(f"Order {order}")
 
 
 if __name__ == '__main__':
