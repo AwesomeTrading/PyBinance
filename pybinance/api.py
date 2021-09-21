@@ -548,9 +548,10 @@ class PyBinanceWS(PyBinanceAPI):
         if not label:
             label = ""
             if len(channels) > 0:
-                label += channels[0] if type(channels) == list else channels
+                label += ",".join(markets) if type(
+                    channels) == list else channels
             if len(markets) > 0:
-                label += "->" + markets[0]
+                label += "->" + ",".join(markets)
             else:
                 logger.warn(
                     "Subscribe request label is common "
