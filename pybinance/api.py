@@ -617,7 +617,6 @@ class PyBinanceWS(PyBinanceAPI):
                 continue
             if buffer is not None:
                 try:
-                    print('buffer', buffer)
                     # skip unwanted data
                     if 'result' in buffer and buffer['result'] is None:
                         continue
