@@ -559,13 +559,13 @@ class PyBinanceWS(PyBinanceAPI):
                     f"channel={channels}, events={events}, label={label}")
 
         # subscribe
-        sid = self.ws.create_stream(channels,
-                                    markets,
-                                    stream_label=label,
-                                    output="dict",
-                                    api_key=self.exchange.apiKey,
-                                    api_secret=self.exchange.secret,
-                                    **kwargs)
+        stream_id = self.ws.create_stream(channels,
+                                          markets,
+                                          stream_label=label,
+                                          output="dict",
+                                          api_key=self.exchange.apiKey,
+                                          api_secret=self.exchange.secret,
+                                          **kwargs)
         # set event listener
         for e in events:
             if e not in self.subscribers:
@@ -580,7 +580,7 @@ class PyBinanceWS(PyBinanceAPI):
 
             if not existed:
                 self.subscribers[e].append(q)
-        return q, sid
+        return q, stream_id
 
     def unsubscribe(self, stream_id, channels=[], markets=[], **kwargs):
         if not channels and not markets:
