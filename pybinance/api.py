@@ -653,7 +653,10 @@ class PyBinanceWS(PyBinanceAPI):
                     traceback.print_exc()
 
     def stop(self):
-        self.ws.stop_manager_with_all_streams()
+        try:
+            self.ws.stop_manager_with_all_streams()
+        except Exception as e:
+            logger.error("stop error: %s", e)
 
 
 class PyBinance(PyBinanceWS, metaclass=Singleton):
