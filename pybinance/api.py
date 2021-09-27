@@ -171,6 +171,7 @@ class PyBinanceWS(PyBinanceAPI):
         super().__init__(exchange='binance', sandbox=sandbox, **kwargs)
 
         self.subscribers = {}
+        self._isalive = True
 
         # parsers
         self.parsers = {
@@ -606,57 +607,62 @@ class PyBinanceWS(PyBinanceAPI):
 
     def _t_loop_stream(self):
         while True:
-            if self.ws.is_manager_stopping():
-                self.stop()
-                return
+            # break condiction
+            if not self._isalive:
+                break
 
             buffer = self.ws.pop_stream_data_from_stream_buffer()
+
+            # filters
             if buffer == False:
                 time.sleep(0.01)
                 continue
-            if buffer is not None:
-                try:
-                    # skip unwanted data
-                    if 'result' in buffer and buffer['result'] is None:
+            if buffer is None:
+                continue
+
+            # handle new msg
+            try:
+                # skip unwanted data
+                if 'result' in buffer and buffer['result'] is None:
+                    continue
+
+                # handle msg
+                if 'data' in buffer:
+                    buffer = buffer['data']
+
+                if 'e' in buffer:
+                    name = buffer['e']
+                else:
+                    raise RuntimeError(f"buffer format is invalid: {buffer}")
+
+                if name not in self.parsers:
+                    logger.warn("event parser not found: %s", buffer)
+                    continue
+
+                event = self.parsers[name](buffer)
+
+                if 'listeners' in event:
+                    listeners = event['listeners']
+                else:
+                    listeners = [name]
+
+                for listener in listeners:
+                    if listener not in self.subscribers:
                         continue
 
-                    # handle msg
-                    if 'data' in buffer:
-                        buffer = buffer['data']
-
-                    if 'e' in buffer:
-                        name = buffer['e']
-                    else:
-                        raise RuntimeError(
-                            f"buffer format is invalid: {buffer}")
-
-                    if name not in self.parsers:
-                        logger.warn("event parser not found: %s", buffer)
-                        continue
-
-                    event = self.parsers[name](buffer)
-
-                    if 'listeners' in event:
-                        listeners = event['listeners']
-                    else:
-                        listeners = [name]
-
-                    for listener in listeners:
-                        if listener not in self.subscribers:
-                            continue
-
-                        for q in self.subscribers[listener]:
-                            q.put(event)
-                except Exception as e:
-                    logger.error("raw data: %s", buffer)
-                    logger.error("exception: %s", e)
-                    traceback.print_exc()
+                    for q in self.subscribers[listener]:
+                        q.put(event)
+            except Exception as e:
+                logger.error("raw data: %s", buffer)
+                logger.error("exception: %s", e)
+                traceback.print_exc()
 
     def stop(self):
         try:
             self.ws.stop_manager_with_all_streams()
         except Exception as e:
             logger.error("stop error: %s", e)
+        self._isalive = False
 
 
 class PyBinance(PyBinanceWS, metaclass=Singleton):
