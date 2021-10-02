@@ -195,17 +195,17 @@ class PyBinanceWS(PyBinanceAPI):
             )
 
         # binance websocket init
-        exchange = 'binance.com'
+        self.exchange_name = 'binance.com'
         if self.exchange_type == 'margin':
-            exchange = f"{exchange}-margin"
+            self.exchange_name = f"{self.exchange_name}-margin"
         elif self.exchange_type == 'future':
-            exchange = f"{exchange}-futures"
+            self.exchange_name = f"{self.exchange_name}-futures"
 
         if sandbox:
-            exchange = f"{exchange}-testnet"
+            self.exchange_name = f"{self.exchange_name}-testnet"
 
-        print(f"Binance exchange: {exchange}")
-        self.ws = BinanceWebSocketApiManager(exchange=exchange)
+        logger.info(f"Binance exchange: {self.exchange_name}")
+        self.ws = BinanceWebSocketApiManager(exchange=self.exchange_name)
 
         self._loop_stream()
 
@@ -536,6 +536,7 @@ class PyBinanceWS(PyBinanceAPI):
                   events,
                   q=None,
                   label=None,
+                  symbols=False,
                   **kwargs):
         self._rate_limit()
 
@@ -558,6 +559,9 @@ class PyBinanceWS(PyBinanceAPI):
                     "Subscribe request label is common "
                     "and could be unsubscribe by another process "
                     f"channel={channels}, events={events}, label={label}")
+        # symbols
+        if symbols:
+            symbols = self._parse_ws_symbol(symbols)
 
         # subscribe
         stream_id = self.ws.create_stream(channels,
@@ -566,6 +570,7 @@ class PyBinanceWS(PyBinanceAPI):
                                           output="dict",
                                           api_key=self.exchange.apiKey,
                                           api_secret=self.exchange.secret,
+                                          symbols=symbols,
                                           **kwargs)
         # set event listener
         for e in events:
@@ -606,11 +611,7 @@ class PyBinanceWS(PyBinanceAPI):
         t.start()
 
     def _t_loop_stream(self):
-        while True:
-            # break condiction
-            if not self._isalive:
-                break
-
+        while self._isalive:
             buffer = self.ws.pop_stream_data_from_stream_buffer()
 
             # filters
@@ -622,6 +623,8 @@ class PyBinanceWS(PyBinanceAPI):
 
             # handle new msg
             try:
+                # logger.info('buffer %s', buffer)
+
                 # skip unwanted data
                 if 'result' in buffer and buffer['result'] is None:
                     continue
@@ -635,12 +638,14 @@ class PyBinanceWS(PyBinanceAPI):
                 else:
                     raise RuntimeError(f"buffer format is invalid: {buffer}")
 
+                # parse data
                 if name not in self.parsers:
                     logger.warn("event parser not found: %s", buffer)
                     continue
 
                 event = self.parsers[name](buffer)
 
+                # put data to listeners queue
                 if 'listeners' in event:
                     listeners = event['listeners']
                 else:
@@ -649,7 +654,6 @@ class PyBinanceWS(PyBinanceAPI):
                 for listener in listeners:
                     if listener not in self.subscribers:
                         continue
-
                     for q in self.subscribers[listener]:
                         q.put(event)
             except Exception as e:
@@ -662,6 +666,9 @@ class PyBinanceWS(PyBinanceAPI):
             self.ws.stop_manager_with_all_streams()
         except Exception as e:
             logger.error("stop error: %s", e)
+        # for loop in self.ws.event_loops.values():
+        #     loop.close()
+        # self.ws.stop_manager_request = True
         self._isalive = False
 
 
