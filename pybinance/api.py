@@ -616,7 +616,7 @@ class PyBinanceWS(PyBinanceAPI):
 
             # filters
             if buffer == False:
-                time.sleep(0.01)
+                time.sleep(0.1)
                 continue
             if buffer is None:
                 continue
