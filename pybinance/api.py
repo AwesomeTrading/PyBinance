@@ -601,7 +601,7 @@ class PyBinanceWS(PyBinanceAPI):
                                                  **kwargs)
 
         self.ws.wait_till_stream_has_stopped(stream_id)
-
+        self.ws.delete_stream_from_stream_list(stream_id)
         # logger.info(self.ws.print_summary(disable_print=True))
         return ok
 
