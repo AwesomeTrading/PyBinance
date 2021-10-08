@@ -205,8 +205,9 @@ class PyBinanceWS(PyBinanceAPI):
             self.exchange_name = f"{self.exchange_name}-testnet"
 
         logger.info(f"Binance exchange: {self.exchange_name}")
-        self.ws = BinanceWebSocketApiManager(exchange=self.exchange_name)
-
+        self.ws = BinanceWebSocketApiManager(exchange=self.exchange_name,
+                                             disable_colorama=True)
+        # self.ws.start_monitoring_api()
         self._loop_stream()
 
     ### low level functions
