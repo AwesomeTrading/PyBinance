@@ -204,7 +204,7 @@ class PyBinanceWS(PyBinanceAPI):
         if sandbox:
             self.exchange_name = f"{self.exchange_name}-testnet"
 
-        logger.info(f"Binance exchange: {self.exchange_name}")
+        logger.info("Binance exchange: %s", self.exchange_name)
         self.ws = BinanceWebSocketApiManager(exchange=self.exchange_name,
                                              disable_colorama=True)
         # self.ws.start_monitoring_api()
@@ -559,7 +559,7 @@ class PyBinanceWS(PyBinanceAPI):
                 logger.warn(
                     "Subscribe request label is common "
                     "and could be unsubscribe by another process "
-                    f"channel={channels}, events={events}, label={label}")
+                    "channel=%s, events=%s, label=%s", channels, events, label)
         # symbols
         if symbols:
             symbols = self._parse_ws_symbol(symbols)
