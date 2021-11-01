@@ -155,7 +155,7 @@ class PyBinanceAPI:
 
     @retry
     def fetch_my_positions(self, symbols=None, params={}):
-        positions = self.exchange.fetch_positions(symbols, params)
+        positions = self.exchange.fetch_account_positions(symbols, params)
 
         response = []
         for position in positions:
