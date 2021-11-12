@@ -171,9 +171,10 @@ class PyBinanceWS(PyBinanceAPI):
         super().__init__(exchange='binance', sandbox=sandbox, **kwargs)
 
         self.subscribers = {}
+        self.streams = {}
         self._isalive = True
 
-        # parsers
+        # Parsers
         self.parsers = {
             'kline': self._parse_bar,
             '24hrTicker': self._parse_ticker,
@@ -194,7 +195,7 @@ class PyBinanceWS(PyBinanceAPI):
                 f"Binance parser for exchange type {self.exchange_type} wasn't support"
             )
 
-        # binance websocket init
+        # Binance websocket init
         self.exchange_name = 'binance.com'
         if self.exchange_type == 'margin':
             self.exchange_name = f"{self.exchange_name}-margin"
@@ -210,7 +211,7 @@ class PyBinanceWS(PyBinanceAPI):
         # self.ws.start_monitoring_api()
         self._loop_stream()
 
-    ### low level functions
+    ### Low level functions
     def _parse_ws_symbol(self, symbol):
         return re.sub(r"[/_]", '', symbol)
 
@@ -222,8 +223,8 @@ class PyBinanceWS(PyBinanceAPI):
             return [self._parse_ws_symbol(m) for m in symbols]
         raise Exception(f'cannot parse symbols {symbols}')
 
-    # subscribe
-    # account
+    # Subscribe
+    # Account
     def subscribe_my_account(self, **kwargs):
         if self.exchange_type == 'spot':
             events = ['executionReport', 'outboundAccountPosition']
@@ -322,7 +323,7 @@ class PyBinanceWS(PyBinanceAPI):
                 positions=positions,
             ))
 
-    # order
+    # Order
     def _parse_future_order(self, e):
         if e['e'] != 'ORDER_TRADE_UPDATE':
             raise RuntimeError(f"event {e} is not ORDER_TRADE_UPDATE")
@@ -404,7 +405,7 @@ class PyBinanceWS(PyBinanceAPI):
                 # callRate=o.get("cr", None),
             ))
 
-    # bar
+    # Bar
     def subscribe_bars(self, markets, timeframe, q=None, **kwargs):
         markets = self._parse_ws_symbols(markets)
         channel = f"kline_{timeframe}"
@@ -454,7 +455,7 @@ class PyBinanceWS(PyBinanceAPI):
         ]
         return event
 
-    # ticker
+    # Ticker
     def subscribe_tickers(self, markets, **kwargs):
         markets = self._parse_ws_symbols(markets)
         return self.subscribe('ticker', markets, ['24hrTicker'], **kwargs)
@@ -483,7 +484,7 @@ class PyBinanceWS(PyBinanceAPI):
             trades=e["n"],  # Total number of trades
         )
 
-    # mini ticker
+    # Mini ticker
     def subscribe_minitickers(self, markets, **kwargs):
         markets = self._parse_ws_symbols(markets)
         return self.subscribe('miniTicker', markets, ['24hrMiniTicker'],
@@ -504,7 +505,7 @@ class PyBinanceWS(PyBinanceAPI):
             quote_volume=float(e["q"]),  # Total traded quote asset volume
         )
 
-    # book ticker
+    # Book ticker
     def subscribe_bookticker(self, markets, **kwargs):
         markets = self._parse_ws_symbols(markets)
         return self.subscribe('bookTicker', markets, ['bookTicker'], **kwargs)
@@ -524,7 +525,7 @@ class PyBinanceWS(PyBinanceAPI):
             ask_qty=float(e["A"]),
         )
 
-    # subscribe
+    # Subscribe
     def _rate_limit(self):
         if self.exchange.enableRateLimit:
             self.exchange.throttle()
@@ -541,13 +542,10 @@ class PyBinanceWS(PyBinanceAPI):
                   **kwargs):
         self._rate_limit()
 
-        reused = False
-        if q is not None:
-            reused = True
-        elif q is None:
+        if q is None:
             q = queue.Queue()
 
-        # label of stream
+        # Label of stream
         if not label:
             label = ""
             if len(channels) > 0:
@@ -560,11 +558,11 @@ class PyBinanceWS(PyBinanceAPI):
                     "Subscribe request label is common "
                     "and could be unsubscribe by another process "
                     "channel=%s, events=%s, label=%s", channels, events, label)
-        # symbols
+        # Symbols
         if symbols:
             symbols = self._parse_ws_symbol(symbols)
 
-        # subscribe
+        # Subscribe
         stream_id = self.ws.create_stream(channels,
                                           markets,
                                           stream_label=label,
@@ -573,20 +571,19 @@ class PyBinanceWS(PyBinanceAPI):
                                           api_secret=self.exchange.secret,
                                           symbols=symbols,
                                           **kwargs)
-        # set event listener
+        # Set event listener
         for e in events:
             if e not in self.subscribers:
                 self.subscribers[e] = []
 
-            existed = False
-            if reused:
-                for sq in self.subscribers[e]:
-                    if sq == q:
-                        existed = True
-                        break
-
-            if not existed:
+            if q not in self.subscribers[e]:
                 self.subscribers[e].append(q)
+            else:
+                logger.warn(f"Subscribe queue existed in event {e}")
+
+        # Save stream info
+        self.streams[stream_id] = (q, events)
+
         return q, stream_id
 
     def unsubscribe(self, stream_id, channels=[], markets=[], **kwargs):
@@ -603,7 +600,20 @@ class PyBinanceWS(PyBinanceAPI):
 
         self.ws.wait_till_stream_has_stopped(stream_id)
         self.ws.delete_stream_from_stream_list(stream_id)
-        # logger.info(self.ws.print_summary(disable_print=True))
+
+        # Clean stream
+        q, events = self.streams[stream_id]
+        for e in events:
+            if not e in self.subscribers:
+                continue
+            if not q in self.subscribers[e]:
+                continue
+
+            self.subscribers[e].remove(q)
+            if len(self.subscribers[e]) == 0:
+                del self.subscribers[e]
+        del self.streams[stream_id]
+
         return ok
 
     # stream data loop
@@ -622,15 +632,15 @@ class PyBinanceWS(PyBinanceAPI):
             if buffer is None:
                 continue
 
-            # handle new msg
+            # Handle new msg
             try:
                 # logger.info('buffer %s', buffer)
 
-                # skip unwanted data
+                # Skip unwanted data
                 if 'result' in buffer and buffer['result'] is None:
                     continue
 
-                # handle msg
+                # Handle msg
                 if 'data' in buffer:
                     buffer = buffer['data']
 
@@ -639,14 +649,14 @@ class PyBinanceWS(PyBinanceAPI):
                 else:
                     raise RuntimeError(f"buffer format is invalid: {buffer}")
 
-                # parse data
+                # Parse data
                 if name not in self.parsers:
                     logger.warn("event parser not found: %s", buffer)
                     continue
 
                 event = self.parsers[name](buffer)
 
-                # put data to listeners queue
+                # Put data to listeners queue
                 if 'listeners' in event:
                     listeners = event['listeners']
                 else:
