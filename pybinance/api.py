@@ -32,7 +32,6 @@ class PyBinanceAPI:
     def __init__(
         self,
         exchange,
-        currency,
         config,
         retries=5,
         sandbox=False,
@@ -40,7 +39,6 @@ class PyBinanceAPI:
     ):
         self.exchange = getattr(ccxt, exchange)(config)
         self.exchange_type = self.exchange.options['defaultType']
-        self.currency = currency
         self.retries = retries
         if sandbox:
             self.exchange.set_sandbox_mode(True)
@@ -49,9 +47,6 @@ class PyBinanceAPI:
         @wraps(method)
         def retry_method(self, *args, **kwargs):
             for i in range(self.retries):
-                # if self.debug:
-                #     print('{} - {} - Attempt {}'.format(
-                #         datetime.now(), method.__name__, i))
                 time.sleep(self.exchange.rateLimit / 1000)
                 try:
                     return method(self, *args, **kwargs)
@@ -101,17 +96,8 @@ class PyBinanceAPI:
 
     # account api
     @retry
-    def get_my_wallet_balance(self, params=None):
-        balance = self.exchange.fetch_balance(params)
-        return balance
-
-    @retry
-    def get_my_balance(self):
-        balance = self.exchange.fetch_balance()
-
-        cash = balance['free'][self.currency]
-        value = balance['total'][self.currency]
-        return cash, value
+    def get_my_balance(self, params=None):
+        return self.exchange.fetch_balance(params)
 
     @retry
     def create_my_order(self, symbol, type, side, amount, price, params):
@@ -245,13 +231,13 @@ class PyBinanceWS(PyBinanceAPI):
 
         balances = []
         for b in a['B']:
-            if b['a'] == self.currency:
-                balance = dict(
-                    asset=b['a'],
-                    wallet=float(b['wb']),  # Wallet Balance
-                    cross=float(b['cw']),  # Cross Wallet Balance
-                )
-                balances.append(balance)
+            # if b['a'] == self.currency:
+            balance = dict(
+                asset=b['a'],
+                wallet=float(b['wb']),  # Wallet Balance
+                cross=float(b['cw']),  # Cross Wallet Balance
+            )
+            balances.append(balance)
 
         positions = []
         for p in a['P']:
@@ -284,34 +270,34 @@ class PyBinanceWS(PyBinanceAPI):
             raise RuntimeError(f"Event {e} is not outboundAccountPosition")
 
         balances = []
-        positions = []
+        # positions = []
         for b in e['B']:
-            if b['a'] == self.currency:
-                balance = dict(
-                    asset=b['a'],
-                    # Free Balance
-                    wallet=float(b['f']),
-                    # Locked Balance
-                    locked=float(b['l']),
-                    # Cross Wallet Balance
-                    cross=float(b['f']) + float(b['l']),
-                )
+            # if b['a'] == self.currency:
+            balance = dict(
+                asset=b['a'],
+                # Free Balance
+                wallet=float(b['f']),
+                # Locked Balance
+                locked=float(b['l']),
+                # Cross Wallet Balance
+                cross=float(b['f']) + float(b['l']),
+            )
 
-                balances.append(balance)
-            else:
-                symbol = f"{b['a']}{self.currency}"
-                positions.append(
-                    dict(
-                        id=symbol,
-                        symbol=self.exchange.safe_symbol(symbol),  # Symbol
-                        amount=float(b['f']),  # Position Amount
-                        price=0,  # Entry Price
-                        accum=0,  # (Pre-fee) Accumulated Realized
-                        pnl=0,  # Unrealized PnL
-                        # margin_type=',  # Margin Type
-                        isolated=float(b['l']),  # Isolated/Locked Wallet
-                        side='BUY',  # Position Side
-                    ))
+            balances.append(balance)
+            # else:
+            #     symbol = f"{b['a']}{self.currency}"
+            #     positions.append(
+            #         dict(
+            #             id=symbol,
+            #             symbol=self.exchange.safe_symbol(symbol),  # Symbol
+            #             amount=float(b['f']),  # Position Amount
+            #             price=0,  # Entry Price
+            #             accum=0,  # (Pre-fee) Accumulated Realized
+            #             pnl=0,  # Unrealized PnL
+            #             # margin_type=',  # Margin Type
+            #             isolated=float(b['l']),  # Isolated/Locked Wallet
+            #             side='BUY',  # Position Side
+            #         ))
 
         return dict(
             event=e['e'],
@@ -320,7 +306,7 @@ class PyBinanceWS(PyBinanceAPI):
             account=dict(
                 # reason=a['m'],  # Event reason type
                 balances=balances,
-                positions=positions,
+                # positions=positions,
             ))
 
     # Order
