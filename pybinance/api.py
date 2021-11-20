@@ -82,21 +82,21 @@ class PyBinanceAPI:
         return self.exchange.fetch_trades(symbol, since, limit, params)
 
     @retry
-    def get_time(self):
+    def fetch_time(self):
         return self.exchange.fetch_time()
 
     @retry
-    def get_tickers(self, symbols):
+    def fetch_tickers(self, symbols):
         return self.exchange.fetch_tickers(symbols)
 
     @retry
-    def get_markets(self):
+    def fetch_markets(self):
         self.exchange.load_markets()
         return self.exchange.markets_by_id
 
     # account api
     @retry
-    def get_my_balance(self, params=None):
+    def fetch_my_balance(self, params=None):
         return self.exchange.fetch_balance(params)
 
     @retry
@@ -663,9 +663,6 @@ class PyBinanceWS(PyBinanceAPI):
             self.ws.stop_manager_with_all_streams()
         except Exception as e:
             logger.error("stop error: %s", e)
-        # for loop in self.ws.event_loops.values():
-        #     loop.close()
-        # self.ws.stop_manager_request = True
         self._isalive = False
 
 
