@@ -92,7 +92,7 @@ class PyBinanceAPI:
     @retry
     def fetch_markets(self):
         self.exchange.load_markets()
-        return self.exchange.markets_by_id
+        return self.exchange.markets
 
     # account api
     @retry
