@@ -1,6 +1,7 @@
 env:
-	conda config --append channels conda-forge || true
-	conda create -y --prefix ./.venv python=3.8
-	# eval "$(conda shell.bash hook)"
-	# conda activate ./.venv
-	# pip install -r requirements.txt
+	conda create -n PyBinance python=3.11
+	conda activate PyBinance
+	pip install -r requirements.txt
+
+test:
+	python test.py

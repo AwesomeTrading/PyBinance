@@ -1,5 +1,4 @@
-from __future__ import (absolute_import, division, print_function,
-                        unicode_literals)
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 import time
 import logging
@@ -15,7 +14,7 @@ import ccxt
 from ccxt.base.errors import NetworkError, ExchangeError
 from unicorn_binance_websocket_api import BinanceWebSocketApiManager
 
-logger = logging.getLogger('PyBinance')
+logger = logging.getLogger("PyBinance")
 
 
 class Singleton(type):
@@ -23,25 +22,48 @@ class Singleton(type):
 
     def __call__(cls, *args, **kwargs):
         if cls not in cls._instances:
-            cls._instances[cls] = super(Singleton,
-                                        cls).__call__(*args, **kwargs)
+            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
         return cls._instances[cls]
 
 
 class PyBinanceAPI:
     def __init__(
         self,
-        exchange,
-        config,
+        apiKey,
+        secret,
+        type="spot",
+        sandbox=True,
+        options: dict = {},
         retries=5,
-        sandbox=False,
         **kwargs,
     ):
-        self.exchange = getattr(ccxt, exchange)(config)
-        self.exchange_type = self.exchange.options['defaultType']
+        options.update(
+            {
+                "defaultType": type,
+                "sandboxMode": sandbox,
+                "warnOnFetchOpenOrdersWithoutSymbol": False,
+            }
+        )
+        config = dict(
+            apiKey=apiKey,
+            secret=secret,
+            enableRateLimit=True,
+            options=options,
+        )
+        match type:
+            case "future":
+                exchangecls = ccxt.binanceusdm
+            case _:
+                exchangecls = ccxt.binance
+
+        self.exchange = exchangecls(config)
+        self.exchange_type = type
         self.retries = retries
-        if sandbox:
-            self.exchange.set_sandbox_mode(True)
+
+        # Must call sanbox function instead of option sandboxMode
+        self.exchange.set_sandbox_mode(sandbox)
+
+        logger.info("Starting API exchange class: %s", exchangecls)
 
     def retry(method):
         @wraps(method)
@@ -68,14 +90,12 @@ class PyBinanceAPI:
         # spot api using milliseconds
         # future api using second timestamp
         if since is not None:
-            if self.exchange_type == 'spot':
+            if self.exchange_type == "spot":
                 since = math.floor(since * 1000)
 
-        return self.exchange.fetch_ohlcv(symbol,
-                                         timeframe=timeframe,
-                                         since=since,
-                                         limit=limit,
-                                         params=params)
+        return self.exchange.fetch_ohlcv(
+            symbol, timeframe=timeframe, since=since, limit=limit, params=params
+        )
 
     @retry
     def fetch_trades(self, symbol, since=None, limit=None, params={}):
@@ -101,12 +121,14 @@ class PyBinanceAPI:
 
     @retry
     def create_my_order(self, symbol, type, side, amount, price, params):
-        return self.exchange.create_order(symbol=symbol,
-                                          type=type,
-                                          side=side,
-                                          amount=amount,
-                                          price=price,
-                                          params=params)
+        return self.exchange.create_order(
+            symbol=symbol,
+            type=type,
+            side=side,
+            amount=amount,
+            price=price,
+            params=params,
+        )
 
     @retry
     def fetch_my_order(self, oid, symbol):
@@ -117,11 +139,7 @@ class PyBinanceAPI:
         return self.exchange.fetch_orders(symbol, since, limit, params)
 
     @retry
-    def fetch_my_open_orders(self,
-                             symbol=None,
-                             since=None,
-                             limit=None,
-                             params={}):
+    def fetch_my_open_orders(self, symbol=None, since=None, limit=None, params={}):
         return self.exchange.fetch_open_orders(symbol, since, limit, params)
 
     @retry
@@ -130,9 +148,10 @@ class PyBinanceAPI:
 
     @retry
     def cancel_my_orders(self, symbol=None, params={}):
-        if 'origClientOrderIdList' in params:
-            params['origClientOrderIdList'] = json.dumps(
-                params['origClientOrderIdList'], separators=(",", ":"))
+        if "origClientOrderIdList" in params:
+            params["origClientOrderIdList"] = json.dumps(
+                params["origClientOrderIdList"], separators=(",", ":")
+            )
         return self.exchange.cancel_all_orders(symbol, params)
 
     @retry
@@ -145,16 +164,20 @@ class PyBinanceAPI:
 
         response = []
         for position in positions:
-            psymbol = self.exchange.safe_symbol(position['symbol'])
+            psymbol = self._parse_market_symbol(position["symbol"])
             if symbols is None or psymbol in symbols:
                 response.append(position)
         return response
 
+    def _parse_market_symbol(self, raw):
+        self.exchange.safe_symbol(raw, None, None, self.exchange_type)
+
 
 class PyBinanceWS(PyBinanceAPI):
-    '''API provider for Binance feed and broker classes.'''
-    def __init__(self, sandbox=False, **kwargs):
-        super().__init__(exchange='binance', sandbox=sandbox, **kwargs)
+    """API provider for Binance feed and broker classes."""
+
+    def __init__(self, sandbox=True, **kwargs):
+        super().__init__(sandbox=sandbox, **kwargs)
 
         self.subscribers = {}
         self.streams = {}
@@ -162,44 +185,50 @@ class PyBinanceWS(PyBinanceAPI):
 
         # Parsers
         self.parsers = {
-            'kline': self._parse_bar,
-            '24hrTicker': self._parse_ticker,
-            '24hrMiniTicker': self._parse_miniticker,
+            "kline": self._parse_bar,
+            "24hrTicker": self._parse_ticker,
+            "24hrMiniTicker": self._parse_miniticker,
         }
-        if self.exchange_type == 'spot':
-            self.parsers.update({
-                'outboundAccountPosition': self._parse_spot_account,
-                'executionReport': self._parse_spot_order,
-            })
-        elif self.exchange_type == 'future':
-            self.parsers.update({
-                'ACCOUNT_UPDATE': self._parse_future_account,
-                'ORDER_TRADE_UPDATE': self._parse_future_order,
-            })
+        if self.exchange_type == "spot":
+            self.parsers.update(
+                {
+                    "outboundAccountPosition": self._parse_spot_account,
+                    "executionReport": self._parse_spot_order,
+                }
+            )
+        elif self.exchange_type == "future":
+            self.parsers.update(
+                {
+                    "ACCOUNT_UPDATE": self._parse_future_account,
+                    "ORDER_TRADE_UPDATE": self._parse_future_order,
+                }
+            )
         else:
             raise RuntimeError(
                 f"Binance parser for exchange type {self.exchange_type} wasn't support"
             )
 
         # Binance websocket init
-        self.exchange_name = 'binance.com'
-        if self.exchange_type == 'margin':
-            self.exchange_name = f"{self.exchange_name}-margin"
-        elif self.exchange_type == 'future':
-            self.exchange_name = f"{self.exchange_name}-futures"
+        exchange_path = "binance.com"
+        if self.exchange_type == "margin":
+            exchange_path = f"{exchange_path}-margin"
+        elif self.exchange_type == "future":
+            exchange_path = f"{exchange_path}-futures"
 
         if sandbox:
-            self.exchange_name = f"{self.exchange_name}-testnet"
+            exchange_path = f"{exchange_path}-testnet"
 
-        logger.info("Binance exchange: %s", self.exchange_name)
-        self.ws = BinanceWebSocketApiManager(exchange=self.exchange_name,
-                                             disable_colorama=True)
+        logger.info("Starting websocket exchange: %s", exchange_path)
+        self.ws = BinanceWebSocketApiManager(
+            exchange=exchange_path,
+            disable_colorama=True,
+        )
         # self.ws.start_monitoring_api()
         self._loop_stream()
 
     ### Low level functions
     def _parse_ws_symbol(self, symbol):
-        return re.sub(r"[/_]", '', symbol)
+        return re.sub(r"[/_]", "", symbol)
 
     def _parse_ws_symbols(self, symbols):
         if isinstance(symbols, str):
@@ -207,80 +236,81 @@ class PyBinanceWS(PyBinanceAPI):
 
         if isinstance(symbols, list):
             return [self._parse_ws_symbol(m) for m in symbols]
-        raise Exception(f'cannot parse symbols {symbols}')
+        raise Exception(f"cannot parse symbols {symbols}")
 
     # Subscribe
     # Account
     def subscribe_my_account(self, **kwargs):
-        if self.exchange_type == 'spot':
-            events = ['executionReport', 'outboundAccountPosition']
-        elif self.exchange_type == 'future':
-            events = ['ACCOUNT_UPDATE', 'ORDER_TRADE_UPDATE']
+        if self.exchange_type == "spot":
+            events = ["executionReport", "outboundAccountPosition"]
+        elif self.exchange_type == "future":
+            events = ["ACCOUNT_UPDATE", "ORDER_TRADE_UPDATE"]
         else:
             raise RuntimeError(
                 f"Event subscribers for exchange type {self.exchange_type} wasn't support"
             )
 
-        return self.subscribe(['arr'], ['!userData'], events, **kwargs)
+        return self.subscribe(["arr"], ["!userData"], events, **kwargs)
 
     # https://binance-docs.github.io/apidocs/futures/en/#event-order-update
     def _parse_future_account(self, e):
-        if e['e'] != 'ACCOUNT_UPDATE':
+        if e["e"] != "ACCOUNT_UPDATE":
             raise RuntimeError(f"event {e} is not ACCOUNT_UPDATE")
-        a = e['a']
+        a = e["a"]
 
         balances = []
-        for b in a['B']:
+        for b in a["B"]:
             # if b['a'] == self.currency:
             balance = dict(
-                asset=b['a'],
-                wallet=float(b['wb']),  # Wallet Balance
-                cross=float(b['cw']),  # Cross Wallet Balance
+                asset=b["a"],
+                wallet=float(b["wb"]),  # Wallet Balance
+                cross=float(b["cw"]),  # Cross Wallet Balance
             )
             balances.append(balance)
 
         positions = []
-        for p in a['P']:
+        for p in a["P"]:
             positions.append(
                 dict(
                     id=p["s"],
-                    symbol=self.exchange.safe_symbol(p["s"]),  # Symbol
+                    symbol=self._parse_market_symbol(p["s"]),  # Symbol
                     amount=float(p["pa"]),  # Position Amount
                     price=float(p["ep"]),  # Entry Price
                     accum=float(p["cr"]),  # (Pre-fee) Accumulated Realized
                     pnl=float(p["up"]),  # Unrealized PnL
                     margin_type=p["mt"],  # Margin Type
-                    isolated=float(
-                        p["iw"]),  # Isolated Wallet (if isolated position)
+                    isolated=float(p["iw"]),  # Isolated Wallet (if isolated position)
                     side=p["ps"],  # Position Side
-                ))
+                )
+            )
 
         return dict(
-            event=e['e'],
-            event_time=e['E'],
-            transaction_time=e['T'],
+            event=e["e"],
+            event_time=e["E"],
+            transaction_time=e["T"],
             account=dict(
-                reason=a['m'],  # Event reason type
+                reason=a["m"],  # Event reason type
                 balances=balances,
                 positions=positions,
-            ))
+            ),
+        )
 
     def _parse_spot_account(self, e):
-        if e['e'] != 'outboundAccountPosition':
+        if e["e"] != "outboundAccountPosition":
             raise RuntimeError(f"Event {e} is not outboundAccountPosition")
 
         balances = []
         # positions = []
-        for b in e['B']:
+        for b in e["B"]:
             # if b['a'] == self.currency:
             balance = dict(
-                asset=b['a'],
+                asset=b["a"],
                 # Free Balance
-                wallet=float(b['f']),
+                wallet=float(b["f"]),
                 # Locked Balance
-                locked=float(b['l']),
+                locked=float(b["l"]),
                 # Cross Wallet Balance
-                cross=float(b['f']) + float(b['l']),
+                cross=float(b["f"]) + float(b["l"]),
             )
 
             balances.append(balance)
@@ -289,7 +319,7 @@ class PyBinanceWS(PyBinanceAPI):
             #     positions.append(
             #         dict(
             #             id=symbol,
-            #             symbol=self.exchange.safe_symbol(symbol),  # Symbol
+            #             symbol=self._parse_market_symbol(symbol),  # Symbol
             #             amount=float(b['f']),  # Position Amount
             #             price=0,  # Entry Price
             #             accum=0,  # (Pre-fee) Accumulated Realized
@@ -300,68 +330,71 @@ class PyBinanceWS(PyBinanceAPI):
             #         ))
 
         return dict(
-            event=e['e'],
-            event_time=e['E'],
-            transaction_time=e['u'],
+            event=e["e"],
+            event_time=e["E"],
+            transaction_time=e["u"],
             account=dict(
                 # reason=a['m'],  # Event reason type
                 balances=balances,
                 # positions=positions,
-            ))
+            ),
+        )
 
     # Order
     def _parse_future_order(self, e):
-        if e['e'] != 'ORDER_TRADE_UPDATE':
+        if e["e"] != "ORDER_TRADE_UPDATE":
             raise RuntimeError(f"event {e} is not ORDER_TRADE_UPDATE")
-        o = e['o']
-        return dict(event=e['e'],
-                    event_time=e['E'],
-                    timestamp=e['T'],
-                    order=dict(
-                        id=o["i"],
-                        clientOrderId=o["c"],
-                        symbol=self.exchange.safe_symbol(o['s']),
-                        time=o["T"],
-                        side=o["S"],
-                        type=o["o"],
-                        status=o["X"],
-                        price=float(o["p"]),
-                        stopPrice=float(o["sp"]),
-                        amount=float(o["q"]),
-                        filled=float(o["l"]),
-                        profit=float(o["rp"]),
-                        timeInForce=o["f"],
-                        average=float(o["ap"]),
-                        execType=o["x"],
-                        cost=float(o["z"]),
-                        lastPrice=float(o["L"]),
-                        tradeid=o["t"],
-                        bid=float(o["b"]),
-                        ask=float(o["a"]),
-                        maker=o["m"],
-                        reduceOnly=o["R"],
-                        workType=o["wt"],
-                        originType=o["ot"],
-                        positionSide=o["ps"],
-                        closePosition=o["cp"],
-                        commAsset=o.get("N", None),
-                        comm=o.get("n", None),
-                        activePrice=float(o.get("AP", 0)),
-                        callRate=o.get("cr", None),
-                    ))
+        o = e["o"]
+        return dict(
+            event=e["e"],
+            event_time=e["E"],
+            timestamp=e["T"],
+            order=dict(
+                id=o["i"],
+                clientOrderId=o["c"],
+                symbol=self._parse_market_symbol(o["s"]),
+                time=o["T"],
+                side=o["S"],
+                type=o["o"],
+                status=o["X"],
+                price=float(o["p"]),
+                stopPrice=float(o["sp"]),
+                amount=float(o["q"]),
+                filled=float(o["l"]),
+                profit=float(o["rp"]),
+                timeInForce=o["f"],
+                average=float(o["ap"]),
+                execType=o["x"],
+                cost=float(o["z"]),
+                lastPrice=float(o["L"]),
+                tradeid=o["t"],
+                bid=float(o["b"]),
+                ask=float(o["a"]),
+                maker=o["m"],
+                reduceOnly=o["R"],
+                workType=o["wt"],
+                originType=o["ot"],
+                positionSide=o["ps"],
+                closePosition=o["cp"],
+                commAsset=o.get("N", None),
+                comm=o.get("n", None),
+                activePrice=float(o.get("AP", 0)),
+                callRate=o.get("cr", None),
+            ),
+        )
 
     def _parse_spot_order(self, e):
-        if e['e'] != 'executionReport':
+        if e["e"] != "executionReport":
             raise RuntimeError(f"event {e} is not executionReport")
 
         return dict(
-            event=e['e'],
-            event_time=e['E'],
-            timestamp=e['T'],
+            event=e["e"],
+            event_time=e["E"],
+            timestamp=e["T"],
             order=dict(
                 id=e["i"],
                 clientOrderId=e["c"],
-                symbol=self.exchange.safe_symbol(e['s']),
+                symbol=self._parse_market_symbol(e["s"]),
                 time=e["T"],
                 side=e["S"],
                 type=e["o"],
@@ -389,7 +422,8 @@ class PyBinanceWS(PyBinanceAPI):
                 commAsset=e.get("N", None),
                 # activePrice=float(o.get("AP", 0)),
                 # callRate=o.get("cr", None),
-            ))
+            ),
+        )
 
     # Bar
     def subscribe_bars(self, markets, timeframe, q=None, **kwargs):
@@ -408,18 +442,18 @@ class PyBinanceWS(PyBinanceAPI):
         return f"kline_{market}_{timeframe}"
 
     def _parse_bar(self, e):
-        if e['e'] != 'kline':
+        if e["e"] != "kline":
             raise RuntimeError(f"event {e} is not kline")
-        b = e['k']
+        b = e["k"]
 
         event = dict(
-            event=e['e'],
-            event_time=e['E'],
-            symbol=e['s'],
+            event=e["e"],
+            event_time=e["E"],
+            symbol=e["s"],
             bar=dict(
                 start=b["t"],  # Kline start time
                 end=b["T"],  # Kline close time
-                symbol=self.exchange.safe_symbol(b["s"]),  # Symbol
+                symbol=self._parse_market_symbol(b["s"]),  # Symbol
                 timeframe=b["i"],  # timeframe
                 first_tradeid=b["f"],  # First trade ID
                 last_tradeid=b["L"],  # Last trade ID
@@ -434,25 +468,26 @@ class PyBinanceWS(PyBinanceAPI):
                 taker_base_volume=b["V"],  # Taker buy base asset volume
                 taker_quote_volume=b["Q"],  # Taker buy quote asset volume
                 ignore=b["B"],  # Ignore
-            ))
-        event['listeners'] = [
+            ),
+        )
+        event["listeners"] = [
             "kline",
-            self._bar_listener(event['symbol'], event['bar']['timeframe'])
+            self._bar_listener(event["symbol"], event["bar"]["timeframe"]),
         ]
         return event
 
     # Ticker
     def subscribe_tickers(self, markets, **kwargs):
         markets = self._parse_ws_symbols(markets)
-        return self.subscribe('ticker', markets, ['24hrTicker'], **kwargs)
+        return self.subscribe("ticker", markets, ["24hrTicker"], **kwargs)
 
     def _parse_ticker(self, e):
-        if e['e'] != '24hrTicker':
+        if e["e"] != "24hrTicker":
             raise RuntimeError(f"event {e} is not 24hrTicker")
         return dict(
-            event=e['e'],
-            event_time=e['E'],
-            symbol=self.exchange.safe_symbol(e["s"]),  # Symbol
+            event=e["e"],
+            event_time=e["E"],
+            symbol=self._parse_market_symbol(e["s"]),  # Symbol
             change=float(e["p"]),  # Price change
             change_percent=float(e["P"]),  # Price change percent
             avg_price=float(e["w"]),  # Weighted average price
@@ -473,16 +508,15 @@ class PyBinanceWS(PyBinanceAPI):
     # Mini ticker
     def subscribe_minitickers(self, markets, **kwargs):
         markets = self._parse_ws_symbols(markets)
-        return self.subscribe('miniTicker', markets, ['24hrMiniTicker'],
-                              **kwargs)
+        return self.subscribe("miniTicker", markets, ["24hrMiniTicker"], **kwargs)
 
     def _parse_miniticker(self, e):
-        if e['e'] != '24hrMiniTicker':
+        if e["e"] != "24hrMiniTicker":
             raise RuntimeError(f"event {e} is not 24hrMiniTicker")
         return dict(
-            event=e['e'],
-            event_time=e['E'],
-            symbol=self.exchange.safe_symbol(e["s"]),  # Symbol
+            event=e["e"],
+            event_time=e["E"],
+            symbol=self._parse_market_symbol(e["s"]),  # Symbol
             close=float(e["c"]),  # Close price
             open=float(e["o"]),  # Open price
             high=float(e["h"]),  # High price
@@ -494,17 +528,17 @@ class PyBinanceWS(PyBinanceAPI):
     # Book ticker
     def subscribe_bookticker(self, markets, **kwargs):
         markets = self._parse_ws_symbols(markets)
-        return self.subscribe('bookTicker', markets, ['bookTicker'], **kwargs)
+        return self.subscribe("bookTicker", markets, ["bookTicker"], **kwargs)
 
     def _parse_bookticker(self, e):
-        if e['e'] != 'bookTicker':
+        if e["e"] != "bookTicker":
             raise RuntimeError(f"event {e} is not bookTicker")
         return dict(
-            event=e['e'],
-            event_time=e['E'],
-            transaction_time=e['T'],
+            event=e["e"],
+            event_time=e["E"],
+            transaction_time=e["T"],
             update_id=e["u"],
-            symbol=self.exchange.safe_symbol(e["s"]),
+            symbol=self._parse_market_symbol(e["s"]),
             bid=float(e["b"]),
             bid_qty=float(e["B"]),
             ask=float(e["a"]),
@@ -515,17 +549,11 @@ class PyBinanceWS(PyBinanceAPI):
     def _rate_limit(self):
         if self.exchange.enableRateLimit:
             self.exchange.throttle()
-            self.exchange.lastRestRequestTimestamp = self.exchange.milliseconds(
-            )
+            self.exchange.lastRestRequestTimestamp = self.exchange.milliseconds()
 
-    def subscribe(self,
-                  channels,
-                  markets,
-                  events,
-                  q=None,
-                  label=None,
-                  symbols=False,
-                  **kwargs):
+    def subscribe(
+        self, channels, markets, events, q=None, label=None, symbols=False, **kwargs
+    ):
         self._rate_limit()
 
         if q is None:
@@ -535,28 +563,33 @@ class PyBinanceWS(PyBinanceAPI):
         if not label:
             label = ""
             if len(channels) > 0:
-                label += ",".join(markets) if type(
-                    channels) == list else channels
+                label += ",".join(markets) if type(channels) == list else channels
             if len(markets) > 0:
                 label += "->" + ",".join(markets)
             else:
                 logger.warn(
                     "Subscribe request label is common "
                     "and could be unsubscribe by another process "
-                    "channel=%s, events=%s, label=%s", channels, events, label)
+                    "channel=%s, events=%s, label=%s",
+                    channels,
+                    events,
+                    label,
+                )
         # Symbols
         if symbols:
             symbols = self._parse_ws_symbol(symbols)
 
         # Subscribe
-        stream_id = self.ws.create_stream(channels,
-                                          markets,
-                                          stream_label=label,
-                                          output="dict",
-                                          api_key=self.exchange.apiKey,
-                                          api_secret=self.exchange.secret,
-                                          symbols=symbols,
-                                          **kwargs)
+        stream_id = self.ws.create_stream(
+            channels=channels,
+            markets=markets,
+            stream_label=label,
+            output="dict",
+            api_key=self.exchange.apiKey,
+            api_secret=self.exchange.secret,
+            symbols=symbols,
+            **kwargs,
+        )
         # Set event listener
         for e in events:
             if e not in self.subscribers:
@@ -581,8 +614,7 @@ class PyBinanceWS(PyBinanceAPI):
             markets = self._parse_ws_symbols(markets)
 
             self._rate_limit()
-            ok = self.ws.unsubscribe_from_stream(stream_id, channels, markets,
-                                                 **kwargs)
+            ok = self.ws.unsubscribe_from_stream(stream_id, channels, markets, **kwargs)
 
         self.ws.wait_till_stream_has_stopped(stream_id)
         self.ws.delete_stream_from_stream_list(stream_id)
@@ -623,15 +655,15 @@ class PyBinanceWS(PyBinanceAPI):
                 # logger.info('buffer %s', buffer)
 
                 # Skip unwanted data
-                if 'result' in buffer and buffer['result'] is None:
+                if "result" in buffer and buffer["result"] is None:
                     continue
 
                 # Handle msg
-                if 'data' in buffer:
-                    buffer = buffer['data']
+                if "data" in buffer:
+                    buffer = buffer["data"]
 
-                if 'e' in buffer:
-                    name = buffer['e']
+                if "e" in buffer:
+                    name = buffer["e"]
                 else:
                     raise RuntimeError(f"buffer format is invalid: {buffer}")
 
@@ -643,8 +675,8 @@ class PyBinanceWS(PyBinanceAPI):
                 event = self.parsers[name](buffer)
 
                 # Put data to listeners queue
-                if 'listeners' in event:
-                    listeners = event['listeners']
+                if "listeners" in event:
+                    listeners = event["listeners"]
                 else:
                     listeners = [name]
 
@@ -654,9 +686,7 @@ class PyBinanceWS(PyBinanceAPI):
                     for q in self.subscribers[listener]:
                         q.put(event)
             except Exception as e:
-                logger.error("raw data: %s", buffer)
-                logger.error("exception: %s", e)
-                traceback.print_exc()
+                logger.exception("raw data: %s", buffer, exc_info=e)
 
     def stop(self):
         try:
