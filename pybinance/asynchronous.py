@@ -90,7 +90,7 @@ class PyBinanceAPI:
         return await self.exchange.fetch_balance(params)
 
     async def create_my_order(self, symbol, type, side, amount, price, params):
-        return await self.exchange.create_order_ws(
+        return await self.exchange.create_order(
             symbol=symbol,
             type=type,
             side=side,
