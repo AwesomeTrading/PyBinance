@@ -1,1 +1,1 @@
-from .api import PyBinance
+from .synchronous import PyBinance

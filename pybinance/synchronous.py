@@ -94,7 +94,11 @@ class PyBinanceAPI:
                 since = math.floor(since * 1000)
 
         return self.exchange.fetch_ohlcv(
-            symbol, timeframe=timeframe, since=since, limit=limit, params=params
+            symbol,
+            timeframe=timeframe,
+            since=since,
+            limit=limit,
+            params=params,
         )
 
     @retry
