@@ -86,7 +86,7 @@ class PyBinanceAPI:
         return await self.exchange.watch_tickers(markets)
 
     # Account functions
-    async def fetch_my_balance(self, params=None):
+    async def fetch_my_balance(self, params={}):
         return await self.exchange.fetch_balance(params)
 
     async def create_my_order(self, symbol, type, side, amount, price, params):
